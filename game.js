@@ -53,6 +53,13 @@ let gameOver = false;
 let soundOn = true;
 let best = Number(localStorage.getItem(STORAGE_KEY) || 0);
 let audioContext;
+let repeatTimer;
+let repeatDelayTimer;
+let gestureStartX = 0;
+let gestureStartY = 0;
+let gestureLastX = 0;
+let gestureLastY = 0;
+let gestureMoved = false;
 
 boardCtx.scale(BLOCK, BLOCK);
 bestEl.textContent = best;
@@ -387,6 +394,26 @@ function handleAction(action) {
   if (action === "drop") hardDrop();
 }
 
+function startRepeatingAction(action) {
+  stopRepeatingAction();
+  handleAction(action);
+
+  if (!["left", "right", "down"].includes(action)) {
+    return;
+  }
+
+  repeatDelayTimer = window.setTimeout(() => {
+    repeatTimer = window.setInterval(() => handleAction(action), action === "down" ? 55 : 85);
+  }, 170);
+}
+
+function stopRepeatingAction() {
+  window.clearTimeout(repeatDelayTimer);
+  window.clearInterval(repeatTimer);
+  repeatDelayTimer = undefined;
+  repeatTimer = undefined;
+}
+
 document.addEventListener("keydown", (event) => {
   const keyMap = {
     ArrowLeft: "left",
@@ -415,7 +442,19 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.querySelectorAll("[data-action]").forEach((button) => {
-  button.addEventListener("click", () => handleAction(button.dataset.action));
+  button.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    button.setPointerCapture(event.pointerId);
+    startRepeatingAction(button.dataset.action);
+  });
+
+  button.addEventListener("pointerup", (event) => {
+    event.preventDefault();
+    stopRepeatingAction();
+  });
+
+  button.addEventListener("pointercancel", stopRepeatingAction);
+  button.addEventListener("lostpointercapture", stopRepeatingAction);
 });
 
 startButton.addEventListener("click", () => {
@@ -433,36 +472,61 @@ soundToggle.addEventListener("click", () => {
   soundToggle.classList.toggle("is-off", !soundOn);
 });
 
-let touchStartX = 0;
-let touchStartY = 0;
-let touchStartTime = 0;
+boardCanvas.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  boardCanvas.setPointerCapture(event.pointerId);
+  gestureStartX = event.clientX;
+  gestureStartY = event.clientY;
+  gestureLastX = event.clientX;
+  gestureLastY = event.clientY;
+  gestureMoved = false;
+});
 
-boardCanvas.addEventListener("touchstart", (event) => {
-  const touch = event.changedTouches[0];
-  touchStartX = touch.clientX;
-  touchStartY = touch.clientY;
-  touchStartTime = Date.now();
-}, { passive: true });
-
-boardCanvas.addEventListener("touchend", (event) => {
-  const touch = event.changedTouches[0];
-  const dx = touch.clientX - touchStartX;
-  const dy = touch.clientY - touchStartY;
-  const elapsed = Date.now() - touchStartTime;
-
-  if (Math.abs(dx) < 24 && Math.abs(dy) < 24 && elapsed < 260) {
-    handleAction("rotate");
+boardCanvas.addEventListener("pointermove", (event) => {
+  if (!boardCanvas.hasPointerCapture(event.pointerId)) {
     return;
   }
 
-  if (Math.abs(dx) > Math.abs(dy)) {
+  event.preventDefault();
+  const dx = event.clientX - gestureLastX;
+  const dy = event.clientY - gestureLastY;
+
+  if (Math.abs(dx) >= 28 && Math.abs(dx) > Math.abs(dy)) {
     handleAction(dx > 0 ? "right" : "left");
-  } else if (dy > 35) {
-    handleAction("drop");
-  } else if (dy < -35) {
-    handleAction("rotate");
+    gestureLastX = event.clientX;
+    gestureMoved = true;
   }
-}, { passive: true });
+
+  if (dy >= 34 && Math.abs(dy) > Math.abs(dx)) {
+    handleAction("down");
+    gestureLastY = event.clientY;
+    gestureMoved = true;
+  }
+});
+
+boardCanvas.addEventListener("pointerup", (event) => {
+  event.preventDefault();
+  const totalX = event.clientX - gestureStartX;
+  const totalY = event.clientY - gestureStartY;
+
+  if (!gestureMoved && Math.abs(totalX) < 18 && Math.abs(totalY) < 18) {
+    handleAction("rotate");
+  } else if (totalY > 90 && Math.abs(totalY) > Math.abs(totalX) * 1.25) {
+    handleAction("drop");
+  }
+
+  if (boardCanvas.hasPointerCapture(event.pointerId)) {
+    boardCanvas.releasePointerCapture(event.pointerId);
+  }
+});
+
+boardCanvas.addEventListener("pointercancel", (event) => {
+  if (boardCanvas.hasPointerCapture(event.pointerId)) {
+    boardCanvas.releasePointerCapture(event.pointerId);
+  }
+});
+
+document.addEventListener("gesturestart", (event) => event.preventDefault());
 
 arena = createArena();
 current = createPiece();
