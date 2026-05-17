@@ -53,6 +53,8 @@ let gameOver = false;
 let soundOn = true;
 let best = Number(localStorage.getItem(STORAGE_KEY) || 0);
 let audioContext;
+let musicTimer;
+let musicStep = 0;
 let repeatTimer;
 let repeatDelayTimer;
 let gestureStartX = 0;
@@ -326,11 +328,13 @@ function startGame() {
   updateStats();
   drawNext();
   playTone(330, 0.07);
+  startMusic();
 }
 
 function endGame() {
   running = false;
   gameOver = true;
+  stopMusic();
   overlayTitle.textContent = "游戏结束";
   startButton.textContent = "再玩一次";
   overlay.classList.remove("is-hidden");
@@ -343,6 +347,11 @@ function togglePause() {
   }
 
   paused = !paused;
+  if (paused) {
+    stopMusic();
+  } else {
+    startMusic();
+  }
   pauseButton.textContent = paused ? "继续" : "暂停";
   overlayTitle.textContent = "已暂停";
   startButton.textContent = "继续";
@@ -369,7 +378,7 @@ function playTone(frequency, duration) {
     return;
   }
 
-  audioContext ||= new AudioContext();
+  ensureAudio();
   const oscillator = audioContext.createOscillator();
   const gain = audioContext.createGain();
   oscillator.frequency.value = frequency;
@@ -379,6 +388,59 @@ function playTone(frequency, duration) {
   oscillator.connect(gain).connect(audioContext.destination);
   oscillator.start();
   oscillator.stop(audioContext.currentTime + duration);
+}
+
+function ensureAudio() {
+  audioContext ||= new AudioContext();
+  if (audioContext.state === "suspended") {
+    audioContext.resume();
+  }
+}
+
+function playMusicNote(frequency, duration, volume) {
+  ensureAudio();
+  const start = audioContext.currentTime;
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+
+  oscillator.type = "square";
+  oscillator.frequency.value = frequency;
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(volume, start + 0.014);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  oscillator.connect(gain).connect(audioContext.destination);
+  oscillator.start(start);
+  oscillator.stop(start + duration + 0.03);
+}
+
+function startMusic() {
+  if (!soundOn || musicTimer || !running || paused || gameOver) {
+    return;
+  }
+
+  const melody = [659, 494, 523, 587, 523, 494, 440, 440, 523, 659, 587, 523, 494, 523, 587, 659];
+  const bass = [165, 165, 196, 196, 220, 220, 196, 196];
+
+  const playBeat = () => {
+    if (!soundOn || !running || paused || gameOver) {
+      stopMusic();
+      return;
+    }
+
+    playMusicNote(melody[musicStep % melody.length], 0.15, 0.024);
+    if (musicStep % 2 === 0) {
+      playMusicNote(bass[(musicStep / 2) % bass.length], 0.24, 0.014);
+    }
+    musicStep += 1;
+  };
+
+  playBeat();
+  musicTimer = window.setInterval(playBeat, 185);
+}
+
+function stopMusic() {
+  window.clearInterval(musicTimer);
+  musicTimer = undefined;
 }
 
 function handleAction(action) {
@@ -470,6 +532,11 @@ restartButton.addEventListener("click", startGame);
 soundToggle.addEventListener("click", () => {
   soundOn = !soundOn;
   soundToggle.classList.toggle("is-off", !soundOn);
+  if (soundOn) {
+    startMusic();
+  } else {
+    stopMusic();
+  }
 });
 
 boardCanvas.addEventListener("pointerdown", (event) => {
